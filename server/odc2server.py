@@ -1,4 +1,10 @@
 #!/usr/bin/env/python3
+# colorize output
+OV = '\x1b[0;33m' # verbose
+OR = '\x1b[0;34m' # routine
+OE = '\x1b[1;31m' # error
+OM = '\x1b[0m'    # mischief managed
+
 import argparse
 import datetime
 import sys
@@ -10,19 +16,14 @@ import struct
 try:
     from dnslib import *
 except ImportError:
-    print("Missing dependency dnslib: <https://pypi.python.org/pypi/dnslib>. Please install it with `pip`.")
+    print(f"{OE}Missing dependency dnslib: <https://pypi.python.org/pypi/dnslib>. Please install it with {OR}pip{OE}.{OM}")
     sys.exit(2)
 
-# colorize output
-OV = '\x1b[0;33m' # verbose
-OR = '\x1b[0;34m' # routine
-OE = '\x1b[1;31m' # error
-OM = '\x1b[0m'    # mischief managed
+debuggin = True
 
 class DomainName(str):
     def __getattr__(self, item):
         return DomainName(item + '.' + self)
-
 
 D = DomainName('example.com.')
 # IP = '127.0.0.1'
@@ -49,46 +50,35 @@ records = {
     D.andrei: [CNAME(D)],
 }
 
-
 def dns_response(data):
     request = DNSRecord.parse(data)
-
-    print(request)
-
+    if debuggin: print(f"{OV}Incoming data looks like:\n{OR} {data}{OM}")
+    if debuggin: print(f"{OV}Incoming request looks like:\n{OR} {request}{OM}")
     reply = DNSRecord(DNSHeader(id=request.header.id, qr=1, aa=1, ra=1), q=request.q)
-
     qname = request.q.qname
+    if debuggin: print(f"{OV}Incoming qname looks like:\n{OR} {request.q.qname}{OM}")
     qn = str(qname)
     qtype = request.q.qtype
     qt = QTYPE[qtype]
-
     if qn == D or qn.endswith('.' + D):
-
         for name, rrs in records.items():
             if name == qn:
                 for rdata in rrs:
                     rqt = rdata.__class__.__name__
                     if qt in ['*', rqt]:
                         reply.add_answer(RR(rname=qname, rtype=getattr(QTYPE, rqt), rclass=1, ttl=TTL, rdata=rdata))
-
         for rdata in ns_records:
             reply.add_ar(RR(rname=D, rtype=QTYPE.NS, rclass=1, ttl=TTL, rdata=rdata))
-
         reply.add_auth(RR(rname=D, rtype=QTYPE.SOA, rclass=1, ttl=TTL, rdata=soa_record))
-
-    print("---- Reply:\n", reply)
-
+    if debuggin: print(f"{OV}Outgoing reply looks like:\n{OR} {reply}{OM}")
     return reply.pack()
 
 
 class BaseRequestHandler(socketserver.BaseRequestHandler):
-
     def get_data(self):
         raise NotImplementedError
-
     def send_data(self, data):
         raise NotImplementedError
-
     def handle(self):
         now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
         print("\n\n%s request %s (%s %s):" % (self.__class__.__name__[:3], now, self.client_address[0],
@@ -102,7 +92,6 @@ class BaseRequestHandler(socketserver.BaseRequestHandler):
 
 
 class TCPRequestHandler(BaseRequestHandler):
-
     def get_data(self):
         data = self.request.recv(8192).strip()
         sz = struct.unpack('>H', data[:2])[0]
@@ -111,26 +100,22 @@ class TCPRequestHandler(BaseRequestHandler):
         elif sz > len(data) - 2:
             raise Exception("Too big TCP packet")
         return data[2:]
-
     def send_data(self, data):
         sz = struct.pack('>H', len(data))
         return self.request.sendall(sz + data)
 
 
 class UDPRequestHandler(BaseRequestHandler):
-
     def get_data(self):
         # return self.request[0].strip()
         return self.request[0]
-
     def send_data(self, data):
         return self.request[1].sendto(data, self.client_address)
 
-
 def main():
-    parser = argparse.ArgumentParser(description='Start a DNS implemented in Python.')
-    parser = argparse.ArgumentParser(description='Start a DNS implemented in Python. Usually DNSs use UDP on port 53.')
-    parser.add_argument('--port', default=5053, type=int, help='The port to listen on.')
+    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server.')
+    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to UDP on port 53.')
+    parser.add_argument('--port', default=53, type=int, help='The port to listen on.')
     parser.add_argument('--tcp', action='store_true', help='Listen to TCP connections.')
     parser.add_argument('--udp', action='store_true', help='Listen to UDP datagrams.')
     
@@ -148,13 +133,11 @@ def main():
         thread.daemon = True  # exit the server thread when the main thread terminates
         thread.start()
         print("%s server loop running in thread: %s" % (s.RequestHandlerClass.__name__[:3], thread.name))
-
     try:
         while 1:
             time.sleep(1)
             sys.stderr.flush()
             sys.stdout.flush()
-
     except KeyboardInterrupt:
         pass
     finally:
