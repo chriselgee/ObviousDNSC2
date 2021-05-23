@@ -19,7 +19,11 @@ except ImportError:
     print(f"{OE}Missing dependency dnslib: <https://pypi.python.org/pypi/dnslib>. Please install it with {OR}pip{OE}.{OM}")
     sys.exit(2)
 
-debuggin = True
+def decode(b64):
+    return base64.decode(str(b64,"UTF"))
+
+def encode(string):
+    return base64.encode(bytes(string,"UTF"))
 
 class DomainName(str):
     def __getattr__(self, item):
@@ -114,14 +118,17 @@ class UDPRequestHandler(BaseRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server.')
-    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to UDP on port 53.')
+    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to listen on UDP port 53.')
     parser.add_argument('--port', default=53, type=int, help='The port to listen on.')
     parser.add_argument('--tcp', action='store_true', help='Listen to TCP connections.')
     parser.add_argument('--udp', action='store_true', help='Listen to UDP datagrams.')
-    
+    parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity")
+
     args = parser.parse_args()
     if not (args.udp or args.tcp): parser.error("Please select at least one of --udp or --tcp.")
 
+    debuggin = args.verbose
+    if debuggin: print(f"{OV}Verbose output enabled{OM}")
     print("Starting nameserver...")
 
     servers = []
