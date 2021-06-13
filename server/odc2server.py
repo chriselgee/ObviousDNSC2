@@ -13,6 +13,7 @@ import threading
 import traceback
 import socketserver
 import struct
+import base64
 try:
     from dnslib import *
 except ImportError:
@@ -38,7 +39,7 @@ soa_record = SOA(
     mname=D.ns1,  # primary name server
     rname=D.andrei,  # email of the domain administrator
     times=(
-        201307231,  # serial number
+        867530999,  # serial number
         60 * 60 * 1,  # refresh
         60 * 60 * 3,  # retry
         60 * 60 * 24,  # expire
@@ -118,14 +119,16 @@ class UDPRequestHandler(BaseRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server.')
-    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to listen on UDP port 53.')
+    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to listen on UDP and TCP port 53.')
     parser.add_argument('--port', default=53, type=int, help='The port to listen on.')
     parser.add_argument('--tcp', action='store_true', help='Listen to TCP connections.')
     parser.add_argument('--udp', action='store_true', help='Listen to UDP datagrams.')
     parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity")
 
     args = parser.parse_args()
-    if not (args.udp or args.tcp): parser.error("Please select at least one of --udp or --tcp.")
+    if not (args.udp or args.tcp):
+        # parser.error("Please select at least one of --udp or --tcp.")
+        args.udp = args.tcp = True # let's default to yes on both
 
     debuggin = args.verbose
     if debuggin: print(f"{OV}Verbose output enabled{OM}")
