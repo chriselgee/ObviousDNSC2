@@ -14,6 +14,7 @@ import traceback
 import socketserver
 import struct
 import base64
+from textwrap import wrap
 try:
     from dnslib import *
 except ImportError:
@@ -33,7 +34,7 @@ class DomainName(str):
 D = DomainName('example.com.')
 # IP = '127.0.0.1'
 IP = '0.0.0.0'
-TTL = 60 * 5
+TTL = 1 # to (hopefully) ensure responses aren't cached.  Apparently "0" can have odd effects...
 
 soa_record = SOA(
     mname=D.ns1,  # primary name server

