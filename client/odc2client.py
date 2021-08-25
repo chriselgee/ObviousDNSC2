@@ -106,6 +106,7 @@ def main():
                 answer = answer[0].to_text().replace('"','') # avoid quotes in answer
                 msgType = answer[:3]
                 chunks = wrap(codedOutput.decode('utf-8'),55)
+                print(f"{OV}Response is {OR}{len(chunks)}{OV} chunks long and being sent in {OR}{respPktCt}{OV} packets{OM}")
                 if msgType != "ACK":
                     error = f"Expected 'ACK' from server, got {msgType}"
                     print(OE + error + OM)

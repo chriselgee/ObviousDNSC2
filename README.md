@@ -21,3 +21,7 @@ On the victim machine, run `odc2client.py -d odc2.SomeDomainIOwn.com`
 `RES<pkt num>       ACK<pkt num>`  (counts down to 0)
 
 `DIE` from server closes client
+
+## Hints
+- Nudge players early on to look for and understand Base64- and Base32-encoded text
+- Wireshark allows wildcard matches in display filters like `dns.qry.name matches ".*\.toteslegit\.us"`
